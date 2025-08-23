@@ -72,64 +72,8 @@ def create_dataframe_with_tickers(test_mode=False, test_count=10):
         tickers = tickers[:test_count]
     
     df = pd.DataFrame(tickers, columns=["Ticker"])
-    output_path = "data/01_va_sp500_tickers.csv"
+    output_path = "data/va_sp500_tickers.csv"
     df.to_csv(output_path, index=False)
-
-# Filter by net income:
-def filter_by_net_income():
-    """
-    Filters tickers from a CSV file based on two criteria for net income over the last 3 years:
-    1. Positive net income each year.
-    2. Non-decreasing net income.
-    The filtered tickers are saved to a new CSV file: data/va_sp500_filtered_by_net_income.csv
-    """
-    input_path = "data/01_va_sp500_tickers.csv"
-    output_path = "data/02_va_sp500_filtered_by_net_income.csv"
-
-    if not os.path.exists(input_path):
-        print("❌ Input file not found:", input_path)
-        # Create an empty CSV if the input file doesn't exist to prevent further errors
-        pd.DataFrame(columns=['Ticker']).to_csv(output_path, index=False)
-        return
-
-    df = pd.read_csv(input_path)
-    tickers_to_keep = []
-    print("⏳ Filtering stocks by net income for the last 3 years...")
-
-    for idx, ticker in enumerate(df['Ticker']):
-        # Using a try-except block to gracefully handle any API or data fetching issues
-        try:
-            time_delay() # Delay to respect API limits
-            stock = yf.Ticker(ticker)
-            financials_df = stock.financials
-
-            # Check if 'Net Income' exists in the index and if there's enough data
-            if 'Net Income' not in financials_df.index or len(financials_df.columns) < 3:
-                continue
-
-            # Get the net income for the last 3 fiscal periods (most recent 3 columns)
-            net_income_series = financials_df.loc['Net Income'].iloc[:3]
-
-            # Condition 1: All net income values must be positive
-            is_positive = (net_income_series > 0).all()
-
-            # Condition 2: Net income must not decrease (from oldest to newest of the three)
-            # yfinance financials are usually in descending order of year, so [0] is most recent, [2] is oldest
-            is_non_decreasing = (net_income_series.iloc[2] <= net_income_series.iloc[1]) and \
-                                (net_income_series.iloc[1] <= net_income_series.iloc[0])
-
-            if is_positive and is_non_decreasing:
-                tickers_to_keep.append(ticker)
-
-        except Exception as e:
-            # Print a message for any specific ticker that causes an error, then continue
-            print(f"⚠️ Skipping {ticker} due to an error during net income check: {e}")
-            continue
-
-    # Save the filtered tickers to a new CSV file
-    filtered_df = pd.DataFrame(tickers_to_keep, columns=['Ticker'])
-    filtered_df.to_csv(output_path, index=False)
-    print(f"✅ Filtered down to {len(tickers_to_keep)} tickers, saved to {output_path}")
 
 # Function to get all screening metrics in one API call
 def get_all_screening_metrics(ticker):
@@ -187,29 +131,11 @@ def get_all_screening_metrics(ticker):
             results['change_5d'] = np.nan
             results['change_20d'] = np.nan
         
-        # 4. Options Metrics (from info) - FIXED VERSION
-        try:
-            # Method 1: Use volume-based proxy for options activity
-            current_volume = info.get('regularMarketVolume', 0)
-            avg_volume = info.get('averageVolume', 1)
-            options_volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1  # Changed name
-            options_proxy = min(options_volume_ratio * 50, 100)  # Use new name
-        except:
-            options_proxy = 50.0  # Default middle value
-
-        try:
-            # For put/call proxy, use a more meaningful metric
-            # Method 1: Use price momentum as proxy (rising stocks often have more calls)
-            recent_change = results.get('change_5d', 0)
-            if recent_change > 0:
-                put_call_proxy = 0.3 + (recent_change / 100) * 0.5  # Lower = more calls
-            else:
-                put_call_proxy = 0.7 + abs(recent_change / 100) * 0.5  # Higher = more puts
-            put_call_proxy = min(max(put_call_proxy, 0.1), 2.0)  # Keep in reasonable range
-            
-        except:
-            put_call_proxy = 0.6  # Default slightly call-heavy
-
+        # 4. Options Metrics (from info)
+        implied_volatility = info.get('impliedSharesOutstanding', 0)
+        float_shares = info.get('floatShares', info.get('sharesOutstanding', 1))
+        options_proxy = min(implied_volatility / float_shares * 1000000, 100) if float_shares > 0 else 0
+        put_call_proxy = np.random.uniform(0.5, 1.5)  # Placeholder - replace with real options data
         results['options_proxy'] = round(options_proxy, 2)
         results['put_call_proxy'] = round(put_call_proxy, 2)
         
@@ -235,7 +161,7 @@ def normalize_score(values):
 
 # Function to collect all screening metrics in one pass
 def add_all_screening_metrics():
-    input_path = "data/02_va_sp500_filtered_by_net_income.csv"
+    input_path = "data/va_sp500_tickers.csv"
     
     if not os.path.exists(input_path):
         return
@@ -269,7 +195,7 @@ def add_all_screening_metrics():
         df.at[idx, 'Short_Ratio'] = metrics['short_ratio']
         df.at[idx, 'Short_Percent'] = metrics['short_percent']
     
-    output_path = "data/03_va_sp500_raw_screening_data.csv"
+    output_path = "data/va_sp500_raw_screening_data.csv"
     df.to_csv(output_path, index=False)
 
 # Function to calculate weighted composite scores
@@ -277,7 +203,7 @@ def calculate_screening_scores():
     """
     Calculate screening scores using the single weight configuration.
     """
-    input_path = "data/03_va_sp500_raw_screening_data.csv"
+    input_path = "data/va_sp500_raw_screening_data.csv"
     
     if not os.path.exists(input_path):
         return
@@ -333,7 +259,7 @@ def calculate_screening_scores():
     df['Rank'] = df['Composite_Score'].rank(ascending=False)
     df = df.sort_values('Composite_Score', ascending=False)
     
-    output_path = "data/04_va_sp500_screening_results.csv"
+    output_path = "data/va_sp500_screening_results.csv"
     df.to_csv(output_path, index=False)
 
 # Add a historical volatility column next to tickers (DEPRECATED - now done in add_all_screening_metrics):
@@ -347,14 +273,11 @@ def main(test_mode=False, test_count=10):
 
     # Step 1: Create ticker list
     create_dataframe_with_tickers(test_mode=test_mode, test_count=test_count)
-
-    # Step 2: Filter tickers based on net income
-    filter_by_net_income()
     
-    # Step 3: Collect ALL metrics for the filtered list
+    # Step 2: Collect ALL metrics in one efficient pass
     add_all_screening_metrics()
-
-    # Step 4: Calculate composite scores
+    
+    # Step 3: Calculate composite scores
     calculate_screening_scores()
 
     current_time = datetime.now().strftime("%H:%M:%S")
@@ -365,7 +288,7 @@ if __name__ == "__main__":
     # Change these settings as needed:
     
     # For testing with just 10 stocks:
-    main(test_mode=True, test_count=10)
+    # main(test_mode=True, test_count=10)
     
     # For full S&P 500 screening:
-    # main(test_mode=False)
+    main(test_mode=False)
