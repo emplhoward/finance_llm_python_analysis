@@ -1,0 +1,17 @@
+# Virtual environment
+finance_llm_python_venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Data files
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
