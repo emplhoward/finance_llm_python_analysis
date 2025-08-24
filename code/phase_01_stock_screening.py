@@ -189,29 +189,40 @@ def get_all_screening_metrics(ticker):
         
         # 4. Options Metrics (from info) - FIXED VERSION
         try:
-            # Method 1: Use volume-based proxy for options activity
-            current_volume = info.get('regularMarketVolume', 0)
-            avg_volume = info.get('averageVolume', 1)
-            options_volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1  # Changed name
-            options_proxy = min(options_volume_ratio * 50, 100)  # Use new name
-        except:
-            options_proxy = 50.0  # Default middle value
-
-        try:
-            # For put/call proxy, use a more meaningful metric
-            # Method 1: Use price momentum as proxy (rising stocks often have more calls)
-            recent_change = results.get('change_5d', 0)
-            if recent_change > 0:
-                put_call_proxy = 0.3 + (recent_change / 100) * 0.5  # Lower = more calls
+            stock = yf.Ticker(ticker)
+            # Pick nearest expiry (first available)
+            expirations = stock.options
+            if expirations:
+                exp_date = expirations[0]
+                chain = stock.option_chain(exp_date)
+                
+                # Handle NaN volumes properly
+                call_volume = chain.calls['volume'].fillna(0).sum()
+                put_volume = chain.puts['volume'].fillna(0).sum()
+                total_opt_volume = call_volume + put_volume
+                
+                # Get average stock volume
+                hist = stock.history(period="5d")
+                avg_stock_volume = hist['Volume'].mean() if not hist.empty else 1
+                
+                # Only calculate if there's actual volume
+                if total_opt_volume > 0:
+                    options_proxy = total_opt_volume / max(avg_stock_volume, 1)
+                    put_call_proxy = put_volume / max(call_volume, 1)
+                else:
+                    options_proxy = 0
+                    put_call_proxy = 1  # neutral ratio
             else:
-                put_call_proxy = 0.7 + abs(recent_change / 100) * 0.5  # Higher = more puts
-            put_call_proxy = min(max(put_call_proxy, 0.1), 2.0)  # Keep in reasonable range
-            
-        except:
-            put_call_proxy = 0.6  # Default slightly call-heavy
+                options_proxy = None
+                put_call_proxy = None
+        except Exception as e:
+            options_proxy = None
+            put_call_proxy = None
+            results['options_error'] = str(e)
 
-        results['options_proxy'] = round(options_proxy, 2)
-        results['put_call_proxy'] = round(put_call_proxy, 2)
+        # Save into results dict
+        results['options_proxy'] = round(options_proxy, 4) if options_proxy is not None else None
+        results['put_call_proxy'] = round(put_call_proxy, 4) if put_call_proxy is not None else None
         
         # 5. Short Interest Metrics (from info)
         results['short_ratio'] = round(info.get('shortRatio', 0), 2)
@@ -309,8 +320,8 @@ def calculate_screening_scores():
     df['Historical_Vol_Score'] = normalize_score(df['Historical Vol Past 1 Year'].fillna(0))
     
     # Options score (simplified)
-    options_composite = (normalize_score(df['Options_Proxy'].fillna(0)) * 0.7 + 
-                        normalize_score(1 / (df['Put_Call_Proxy'].fillna(1) + 0.1)) * 0.3)
+    options_composite = (normalize_score(df['Options_Proxy'].fillna(0)) * 0.7 +
+                    normalize_score(df['Put_Call_Proxy'].fillna(1)) * 0.3)
     df['Options_Score'] = options_composite
     
     # Short squeeze score
@@ -365,7 +376,7 @@ if __name__ == "__main__":
     # Change these settings as needed:
     
     # For testing with just 10 stocks:
-    main(test_mode=True, test_count=10)
+    # main(test_mode=True, test_count=10)
     
     # For full S&P 500 screening:
-    # main(test_mode=False)
+    main(test_mode=False)
