@@ -38,8 +38,20 @@ def time_delay():
 # Function to fetch S&P 500 tickers
 def get_sp500_tickers():
     try:
+        # Add headers to mimic a real browser request
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        tables = pd.read_html(url)
+        
+        # Use requests to get the page with headers, then pass to pandas
+        import requests
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        
+        # Parse the HTML content with pandas
+        tables = pd.read_html(response.content)
         print("✅ Wikipedia tables found:", len(tables))
         df = tables[0]
 
@@ -51,7 +63,9 @@ def get_sp500_tickers():
         else:
             raise ValueError("No ticker column found in Wikipedia table")
 
-        return df[col].tolist()
+        tickers = df[col].tolist()
+        print(f"✅ Successfully retrieved {len(tickers)} S&P 500 tickers")
+        return tickers
 
     except Exception as e:
         print("❌ Failed to fetch S&P 500 tickers:", e)
@@ -62,11 +76,7 @@ def create_dataframe_with_tickers(test_mode=False, test_count=10):
     tickers = get_sp500_tickers()
     if not tickers:
         return
-    
-    # Ensure data directory exists
-    if not os.path.exists("data"):
-        os.makedirs("data")
-    
+        
     # Use subset for testing if requested
     if test_mode:
         tickers = tickers[:test_count]
@@ -355,6 +365,10 @@ def main(test_mode=False, test_count=10):
     print("---------------- Started... ----------------")
     current_time = datetime.now().strftime("%H:%M:%S")
     print("Current Time:", current_time)
+
+    # Ensure data directory exists
+    if not os.path.exists("data"):
+        os.makedirs("data")
 
     # Step 1: Create ticker list
     create_dataframe_with_tickers(test_mode=test_mode, test_count=test_count)
